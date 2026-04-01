@@ -117,30 +117,52 @@ with open('dns.csv', 'w', newline='', encoding='utf-8') as f:
 # ==========================================
 # EXTRACTION 4: NETWORK FLOWS (flows.csv)
 # ==========================================
-print("Extracting Network Flow data...")
+print("Extracting Network Flow data (via Packetbeat)...")
+# Query Packetbeat for completed flow records
 flows_query = {
     "query": {
         "query_string": {
-            "query": "winlog.channel:\"Microsoft-Windows-Sysmon/Operational\" AND event.code:3"
+            "query": "type:\"flow\""
         }
     }
 }
 with open('flows.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
-    writer.writerow(["Time", "Computer", "Source IP", "Source Port", "Dest IP", "Dest Port", "Protocol"])
+    # Full LANL Flows Header format
+    writer.writerow([
+        "Time", "Duration (s)", "Computer", "Source IP", "Source Port", 
+        "Dest IP", "Dest Port", "Protocol", "Packet Count", "Byte Count"
+    ])
     
-    for hit in scan(es, query=flows_query, index="winlogbeat-*"):
+    # Notice we are now searching the packetbeat-* index!
+    for hit in scan(es, query=flows_query, index="packetbeat-*"):
         src = hit['_source']
+        
         time = get_field(src, '@timestamp')
-        comp = get_field(src, 'winlog.computer_name')
+        comp = get_field(src, 'agent.hostname')
+        src_ip = get_field(src, 'source.ip')
+        src_port = get_field(src, 'source.port')
+        dst_ip = get_field(src, 'destination.ip')
+        dst_port = get_field(src, 'destination.port')
+        protocol = get_field(src, 'network.transport')
         
-        # Check ECS mapped fields first, fallback to raw Sysmon fields
-        src_ip = get_field(src, 'source.ip') or get_field(src, 'winlog.event_data.SourceIp')
-        src_port = get_field(src, 'source.port') or get_field(src, 'winlog.event_data.SourcePort')
-        dst_ip = get_field(src, 'destination.ip') or get_field(src, 'winlog.event_data.DestinationIp')
-        dst_port = get_field(src, 'destination.port') or get_field(src, 'winlog.event_data.DestinationPort')
-        protocol = get_field(src, 'network.transport') or get_field(src, 'winlog.event_data.Protocol')
+        # Calculate Total Packets (Source + Dest)
+        src_pkts = get_field(src, 'source.packets', 0)
+        dst_pkts = get_field(src, 'destination.packets', 0)
+        total_packets = int(src_pkts) + int(dst_pkts)
         
-        writer.writerow([time, comp, src_ip, src_port, dst_ip, dst_port, protocol])
+        # Calculate Total Bytes (Source + Dest)
+        src_bytes = get_field(src, 'source.bytes', 0)
+        dst_bytes = get_field(src, 'destination.bytes', 0)
+        total_bytes = int(src_bytes) + int(dst_bytes)
+        
+        # Packetbeat records duration in nanoseconds. Convert to seconds for LANL format.
+        duration_ns = get_field(src, 'event.duration', 0)
+        duration_sec = round(int(duration_ns) / 1_000_000_000, 3) if duration_ns else 0
+        
+        writer.writerow([
+            time, duration_sec, comp, src_ip, src_port, 
+            dst_ip, dst_port, protocol, total_packets, total_bytes
+        ])
 
 print("\nDone! Check your folder for auth.csv, proc.csv, dns.csv, and flows.csv.")
