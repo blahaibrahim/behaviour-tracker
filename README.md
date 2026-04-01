@@ -1,6 +1,6 @@
-# LANL Dataset Generator Pipeline
+# LANL Dataset Generator
 
-This repository contains the infrastructure and agents required to generate local PC telemetry mirroring the Los Alamos National Laboratory (LANL) Comprehensive Cyber Security Events dataset.
+This repository contains the setup required to generate local PC telemetry mirroring the Los Alamos National Laboratory (LANL) Cyber Security Events dataset.
 
 ## Phase 1: Start the Database
 1. Install Docker Desktop.
