@@ -29,4 +29,4 @@ Because every PC has a different Wi-Fi card, you must tell Packetbeat which one 
 ## Phase 5: Extract the Data
 1. Install dependencies: `pip install -r requirements.txt`
 2. Run the extraction script: `python scripts/extract_lanl.py`
-3. Enjoy your `auth.csv`, `proc.csv`, `dns.csv`, and `flows.csv`!
+3. Find extracted data in `auth.csv`, `proc.csv`, `dns.csv`, and `flows.csv`
