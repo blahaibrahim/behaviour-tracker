@@ -41,7 +41,7 @@ auth_query = {
         }
     }
 }
-with open('auth.csv', 'w', newline='', encoding='utf-8') as f:
+with open('./data/auth.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(["Time", "Source User", "Target User", "Computer", "Auth Type", "Logon Type", "Orientation", "Status"])
     
@@ -71,7 +71,7 @@ proc_query = {
         }
     }
 }
-with open('proc.csv', 'w', newline='', encoding='utf-8') as f:
+with open('./data/proc.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(["Time", "User", "Computer", "Process Name", "Start/End"])
     
@@ -100,7 +100,7 @@ dns_query = {
         }
     }
 }
-with open('dns.csv', 'w', newline='', encoding='utf-8') as f:
+with open('./data/dns.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(["Time", "Computer", "Resolved Host"])
     
@@ -126,7 +126,7 @@ flows_query = {
         }
     }
 }
-with open('flows.csv', 'w', newline='', encoding='utf-8') as f:
+with open('./data/flows.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     # Full LANL Flows Header format
     writer.writerow([
