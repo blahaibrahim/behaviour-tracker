@@ -27,9 +27,7 @@ subprocess.run("sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y 
 urls = {
     "redteam.txt.gz": "https://csr.lanl.gov/data-fence/1774313780/_qhbLmkHe22dfLBm4hZ62skbI9A=/cyber1/redteam.txt.gz",
     "auth.txt.gz": "https://csr.lanl.gov/data-fence/1774313780/_qhbLmkHe22dfLBm4hZ62skbI9A=/cyber1/auth.txt.gz",
-    "proc.txt.gz": "https://csr.lanl.gov/data-fence/1774313780/_qhbLmkHe22dfLBm4hZ62skbI9A=/cyber1/proc.txt.gz",
-    "flows.txt.gz": "https://csr.lanl.gov/data-fence/1774313780/_qhbLmkHe22dfLBm4hZ62skbI9A=/cyber1/flows.txt.gz",
-    "dns.txt.gz": "https://csr.lanl.gov/data-fence/1774313780/_qhbLmkHe22dfLBm4hZ62skbI9A=/cyber1/dns.txt.gz"
+    "flows.txt.gz": "https://csr.lanl.gov/data-fence/1774313780/_qhbLmkHe22dfLBm4hZ62skbI9A=/cyber1/flows.txt.gz"
 }
 
 # %%
@@ -40,7 +38,8 @@ for filename, url in urls.items():
         continue
         
     print(f"\nDownloading {filename}...")
-    cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--summary-interval=5", "--dir", data_dir, "--out", filename, url]
+    # Added '-q' (quiet) to disable the excessive console printing
+    cmd = ["aria2c", "-q", "-x", "16", "-s", "16", "-k", "1M", "--dir", data_dir, "--out", filename, url]
     subprocess.run(cmd)
 
 print("\nDownloads completed successfully!")
@@ -48,6 +47,7 @@ print("\nDownloads completed successfully!")
 # %%
 import gc
 import json
+import math
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -58,9 +58,7 @@ warnings.filterwarnings('ignore')
 
 files = {
     "Auth":  (os.path.join(data_dir, 'auth.txt.gz'),  ['time', 'src_user', 'dest_user', 'src_comp', 'dest_comp', 'auth_type', 'logon_type', 'auth_orientation', 'success']),
-    "Proc":  (os.path.join(data_dir, 'proc.txt.gz'),  ['time', 'src_user', 'src_comp', 'proc_name', 'start_end']),
-    "Flow":  (os.path.join(data_dir, 'flows.txt.gz'), ['time', 'duration', 'src_comp', 'src_port', 'dest_comp', 'dest_port', 'protocol', 'pkt_cnt', 'byte_cnt']),
-    "DNS":   (os.path.join(data_dir, 'dns.txt.gz'),   ['time', 'src_comp', 'dest_comp'])
+    "Flow":  (os.path.join(data_dir, 'flows.txt.gz'), ['time', 'duration', 'src_comp', 'src_port', 'dest_comp', 'dest_port', 'protocol', 'pkt_cnt', 'byte_cnt'])
 }
 redteam_file = os.path.join(data_dir, 'redteam.txt.gz')
 
@@ -73,7 +71,6 @@ red_times = set(redteam_df['time'])
 red_keys = set(zip(redteam_df['time'], redteam_df['src_comp']))
 print(f"Loaded {len(redteam_df)} known malicious events.")
 
-
 # %%
 def scan_and_sample(filepath, columns, chunksize=15_000_000):
     print(f"\nScanning logs (~{os.path.getsize(filepath) / (1024**3):.1f} GB compressed)...")
@@ -81,7 +78,6 @@ def scan_and_sample(filepath, columns, chunksize=15_000_000):
     current_chunk = 0
     total_anomalies = 0
     
-    # ADDED na_values=['?'] here. Pandas will instantly turn '?' into true Null/NaN values.
     for chunk in pd.read_csv(filepath, names=columns, chunksize=chunksize, dtype=str, na_values=['?']):
         current_chunk += 1
         chunk['time'] = pd.to_numeric(chunk['time'], errors='coerce').fillna(0).astype(np.int32)
@@ -116,9 +112,11 @@ def train_and_save_model(df, model_name, max_depth=6):
     y = df['is_anomaly'].astype(np.int8)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    scale_weight = len(y_train[y_train == 0]) / max(len(y_train[y_train == 1]), 1)
+
+    # Calculate weight, capping it to prevent total precision collapse
+    raw_weight = len(y_train[y_train == 0]) / max(len(y_train[y_train == 1]), 1)
+    scale_weight = min(raw_weight, 200) # Cap weight at 200x penalty
     
-    # Enable categorical support natively in XGBoost
     xgb_params = {
         'objective': 'binary:logistic',
         'tree_method': 'hist',
@@ -128,6 +126,7 @@ def train_and_save_model(df, model_name, max_depth=6):
         'learning_rate': 0.05,
         'max_depth': max_depth,
         'scale_pos_weight': scale_weight,
+        'max_delta_step': 1, # Highly recommended by XGBoost for extreme class imbalance
         'random_state': 42
     }
     
@@ -165,55 +164,40 @@ def train_and_save_model(df, model_name, max_depth=6):
 # 1. AUTHENTICATION
 # ==========================================
 def engineer_auth(df):
+    # Temporal
     df['hour_of_day'] = (df['time'] % 86400) // 3600
     df['is_off_hours'] = df['hour_of_day'].apply(lambda x: 1 if x < 8 or x > 18 else 0).astype(np.int8)
     
-    # Because '?' is now a true NaN, we just check .notna()
+    # Relational
     df['is_lateral_movement'] = np.where(df['dest_comp'].notna(), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
     df['is_account_switch'] = np.where(df['dest_user'].notna(), (df['src_user'] != df['dest_user']).astype(int), 0).astype(np.int8)
-    
     df['is_network_logon'] = np.where(df['logon_type'] == '3', 1, 0).astype(np.int8)
     df['is_interactive_logon'] = np.where(df['logon_type'].isin(['2', '10']), 1, 0).astype(np.int8)
     
-    for col in ['logon_type', 'auth_orientation', 'success']:
+    # String Identity Checks (BEFORE WE DROP THEM)
+    df['src_user_is_machine'] = df['src_user'].str.endswith('$', na=False).astype(np.int8)
+    df['src_user_is_system'] = df['src_user'].str.contains('SYSTEM|ANONYMOUS', case=False, na=False).astype(np.int8)
+    
+    # We kept auth_type! It transfers safely between networks.
+    for col in ['logon_type', 'auth_orientation', 'success', 'auth_type']:
         df[col] = df[col].fillna("Missing").astype(str).astype('category')
         
-    df.drop(columns=['time', 'src_user', 'dest_user', 'src_comp', 'dest_comp', 'auth_type'], inplace=True, errors='ignore')
+    # Now we drop the raw identifiers safely
+    df.drop(columns=['time', 'src_user', 'dest_user', 'src_comp', 'dest_comp'], inplace=True, errors='ignore')
     return df
 
 # %%
 print("\n>>> Processing Authentication Logs...")
 df_auth = scan_and_sample(*files["Auth"])
 df_auth = engineer_auth(df_auth)
-train_and_save_model(df_auth, "Auth", max_depth=6)
+train_and_save_model(df_auth, "Auth", max_depth=8) # Increased depth slightly to capture complex interactions
 del df_auth
 gc.collect()
 
 
 # %%
 # ==========================================
-# 2. PROCESSES
-# ==========================================
-def engineer_proc(df):
-    df['hour_of_day'] = (df['time'] % 86400) // 3600
-    df['is_off_hours'] = df['hour_of_day'].apply(lambda x: 1 if x < 8 or x > 18 else 0).astype(np.int8)
-    df['start_end'] = df['start_end'].fillna("Missing").astype(str).astype('category')
-    
-    df.drop(columns=['time', 'src_user', 'src_comp', 'proc_name'], inplace=True, errors='ignore')
-    return df
-    
-# %%
-print("\n>>> Processing Process Logs...")
-df_proc = scan_and_sample(*files["Proc"])
-df_proc = engineer_proc(df_proc)
-train_and_save_model(df_proc, "Proc", max_depth=5)
-del df_proc
-gc.collect()
-
-
-# %%
-# ==========================================
-# 3. NETWORK FLOWS
+# 2. NETWORK FLOWS
 # ==========================================
 def engineer_flow(df):
     for col in ['duration', 'src_port', 'dest_port', 'pkt_cnt', 'byte_cnt']:
@@ -230,7 +214,7 @@ def engineer_flow(df):
         
     df.drop(columns=['time', 'src_comp', 'dest_comp'], inplace=True, errors='ignore')
     return df
-    
+
 # %%
 print("\n>>> Processing Network Flow Logs...")
 df_flow = scan_and_sample(*files["Flow"])
@@ -239,25 +223,4 @@ train_and_save_model(df_flow, "Flow", max_depth=8)
 del df_flow
 gc.collect()
 
-
-# %%
-# ==========================================
-# 4. DNS
-# ==========================================
-def engineer_dns(df):
-    df['hour_of_day'] = (df['time'] % 86400) // 3600
-    df['is_off_hours'] = df['hour_of_day'].apply(lambda x: 1 if x < 8 or x > 18 else 0).astype(np.int8)
-    df['is_lateral_movement'] = np.where(df['dest_comp'].notna(), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
-    
-    df.drop(columns=['time', 'src_comp', 'dest_comp'], inplace=True, errors='ignore')
-    return df
-
-# %%
-print("\n>>> Processing DNS Logs...")
-df_dns = scan_and_sample(*files["DNS"])
-df_dns = engineer_dns(df_dns)
-train_and_save_model(df_dns, "DNS", max_depth=4)
-del df_dns
-gc.collect()
-
-print("\nAll 4 Environment-Agnostic Models have been successfully trained and exported!")
+print("\nAuth and Flow Environment-Agnostic Models have been successfully trained and exported!")
