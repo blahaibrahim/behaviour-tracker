@@ -67,7 +67,7 @@ redteam_file = os.path.join(data_dir, 'redteam.txt.gz')
 # %%
 print("Loading Red Team ground truth data...")
 red_cols = ['time', 'src_user', 'src_comp', 'dest_comp']
-redteam_df = pd.read_csv(redteam_file, names=red_cols)
+redteam_df = pd.read_csv(redteam_file, names=red_cols, na_values=['?'])
 
 red_times = set(redteam_df['time'])
 red_keys = set(zip(redteam_df['time'], redteam_df['src_comp']))
@@ -81,7 +81,8 @@ def scan_and_sample(filepath, columns, chunksize=15_000_000):
     current_chunk = 0
     total_anomalies = 0
     
-    for chunk in pd.read_csv(filepath, names=columns, chunksize=chunksize, dtype=str):
+    # ADDED na_values=['?'] here. Pandas will instantly turn '?' into true Null/NaN values.
+    for chunk in pd.read_csv(filepath, names=columns, chunksize=chunksize, dtype=str, na_values=['?']):
         current_chunk += 1
         chunk['time'] = pd.to_numeric(chunk['time'], errors='coerce').fillna(0).astype(np.int32)
         
@@ -166,8 +167,11 @@ def train_and_save_model(df, model_name, max_depth=6):
 def engineer_auth(df):
     df['hour_of_day'] = (df['time'] % 86400) // 3600
     df['is_off_hours'] = df['hour_of_day'].apply(lambda x: 1 if x < 8 or x > 18 else 0).astype(np.int8)
-    df['is_lateral_movement'] = np.where(df['dest_comp'].notna() & (df['dest_comp'] != "?"), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
-    df['is_account_switch'] = np.where(df['dest_user'].notna() & (df['dest_user'] != "?"), (df['src_user'] != df['dest_user']).astype(int), 0).astype(np.int8)
+    
+    # Because '?' is now a true NaN, we just check .notna()
+    df['is_lateral_movement'] = np.where(df['dest_comp'].notna(), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
+    df['is_account_switch'] = np.where(df['dest_user'].notna(), (df['src_user'] != df['dest_user']).astype(int), 0).astype(np.int8)
+    
     df['is_network_logon'] = np.where(df['logon_type'] == '3', 1, 0).astype(np.int8)
     df['is_interactive_logon'] = np.where(df['logon_type'].isin(['2', '10']), 1, 0).astype(np.int8)
     
@@ -217,7 +221,7 @@ def engineer_flow(df):
 
     df['hour_of_day'] = (df['time'] % 86400) // 3600
     df['is_off_hours'] = df['hour_of_day'].apply(lambda x: 1 if x < 8 or x > 18 else 0).astype(np.int8)
-    df['is_lateral_movement'] = np.where(df['dest_comp'].notna() & (df['dest_comp'] != "?"), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
+    df['is_lateral_movement'] = np.where(df['dest_comp'].notna(), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
     
     df['bytes_per_packet'] = np.where(df['pkt_cnt'] > 0, df['byte_cnt'] / df['pkt_cnt'], 0).astype(np.float32)
     df['is_short_flow'] = np.where(df['duration'] < 2.0, 1, 0).astype(np.int8)
@@ -231,7 +235,7 @@ def engineer_flow(df):
 print("\n>>> Processing Network Flow Logs...")
 df_flow = scan_and_sample(*files["Flow"])
 df_flow = engineer_flow(df_flow)
-train_and_save_model(df_flow, "Flow", max_depth=8) # Flows need deeper trees due to complexity
+train_and_save_model(df_flow, "Flow", max_depth=8)
 del df_flow
 gc.collect()
 
@@ -243,7 +247,7 @@ gc.collect()
 def engineer_dns(df):
     df['hour_of_day'] = (df['time'] % 86400) // 3600
     df['is_off_hours'] = df['hour_of_day'].apply(lambda x: 1 if x < 8 or x > 18 else 0).astype(np.int8)
-    df['is_lateral_movement'] = np.where(df['dest_comp'].notna() & (df['dest_comp'] != "?"), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
+    df['is_lateral_movement'] = np.where(df['dest_comp'].notna(), (df['src_comp'] != df['dest_comp']).astype(int), 0).astype(np.int8)
     
     df.drop(columns=['time', 'src_comp', 'dest_comp'], inplace=True, errors='ignore')
     return df
@@ -252,7 +256,7 @@ def engineer_dns(df):
 print("\n>>> Processing DNS Logs...")
 df_dns = scan_and_sample(*files["DNS"])
 df_dns = engineer_dns(df_dns)
-train_and_save_model(df_dns, "DNS", max_depth=4) # DNS features are simple, prevent overfitting
+train_and_save_model(df_dns, "DNS", max_depth=4)
 del df_dns
 gc.collect()
 
