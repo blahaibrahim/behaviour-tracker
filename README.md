@@ -7,7 +7,7 @@ This computer will host the database and collect logs from the network.
 
 ### Phase 1: Start the Database
 1. Install Docker Desktop.
-2. Open a terminal in the `/docker` folder.
+2. Open a terminal in the `docker` folder.
 3. Run `docker-compose up -d`.
 4. Wait 1 minute, then go to `https://localhost:5601`, user: `Elastic`, Pass: `found in docker terminal output`.
 
@@ -27,7 +27,7 @@ You must manually install these three programs to monitor this PC:
 
 ### Phase 5: Run the Automation Script
 1. Open PowerShell as Administrator.
-2. Navigate to the `/scripts` folder in this repository.
+2. Navigate to the `scripts` folder in this repository.
 3. Run `.\install_agents.ps1`. This will apply all our custom configurations and start the logging.
 
 ### Phase 6: Fix Packetbeat Network Card
@@ -41,7 +41,7 @@ You must manually install these three programs to monitor this PC:
 Follow these steps to configure additional team PCs to send telemetry to the Server.
 
 ### Phase 1: Point Configs to the Server
-Before installing anything, open `/configs/winlogbeat.yml` and `/configs/packetbeat.yml` in this repo. 
+Before installing anything, open `configs/winlogbeat.yml` and `configs/packetbeat.yml` in this repo. 
 Change the Elasticsearch host from `localhost` to the Server's IP address you got in Part 1 (Phase 3):
 ```yaml
 output.elasticsearch:
@@ -57,5 +57,5 @@ Once your network has generated enough data, run this on the Server PC to genera
 
 1. Open a terminal in the main repo folder.
 2. Install dependencies: `pip install -r requirements.txt`
-3. Run the extraction script: `python scripts/extract_lanl.py`
-4. Find the extracted data in `auth.csv`, `proc.csv`, `dns.csv`, and `flows.csv`.
+3. Run the extraction script: `python scripts/extract_lanl_format.py`
+4. Find the extracted data in `data/auth.csv`, `data/proc.csv`, `data/dns.csv`, and `data/flows.csv`.

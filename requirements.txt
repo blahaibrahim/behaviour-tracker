@@ -1,2 +1,17 @@
 elasticsearch
 urllib3
+
+# Data processing
+pandas
+numpy
+
+# Modeling / evaluation (model notebooks)
+torch
+xgboost
+scikit-learn
+matplotlib
+seaborn
+tqdm
+
+# Threat-intelligence helper scripts
+requests
