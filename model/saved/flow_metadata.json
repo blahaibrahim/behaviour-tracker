@@ -1,0 +1,19 @@
+{
+    "model_name": "LANL_Flow_Anomaly_Detector",
+    "algorithm": "XGBoost",
+    "features": [
+        "duration",
+        "src_port",
+        "dest_port",
+        "protocol",
+        "pkt_cnt",
+        "byte_cnt",
+        "hour_of_day",
+        "is_off_hours",
+        "is_lateral_movement",
+        "bytes_per_packet",
+        "is_short_flow",
+        "is_long_flow"
+    ],
+    "auprc_score": 0.8854
+}
